@@ -1,0 +1,108 @@
+ /*
+This example shows how to set up and read multiple VL53L1X sensors connected to
+the same I2C bus. Each sensor needs to have its XSHUT pin connected to a
+different Arduino pin, and you should change sensorCount and the xshutPins array
+below to match your setup.
+
+For more information, see ST's application note AN4846 ("Using multiple VL53L0X
+in a single design"). The principles described there apply to the VL53L1X as
+well.
+*/
+
+#include <Wire.h>
+#include <VL53L0X.h>
+#include <VL53L1X.h>
+#include <SparkFunSX1509.h>
+#include <Servo.h>
+#include <Arduino.h>
+#include <stdint.h>
+
+const byte SX1509_ADDRESS = 0x3F;
+#define VL53L0X_ADDRESS_START 0x30
+#define VL53L1X_ADDRESS_START 0x35
+
+
+Servo myservoA,myservoB;      // create servo object to control a servo
+uint16_t Amotor_effort, Bmotor_effort = 1500;
+
+
+// The number of sensors in your system.
+const uint8_t sensorCount = 2;
+
+// The Arduino pin connected to the XSHUT pin of each sensor.
+const uint8_t xshutPinsL0[8] = {0,1};
+
+
+SX1509 io; // Create an SX1509 object to be used throughout
+VL53L0X sensorsL0[sensorCount];
+
+
+void setup()
+{
+  myservoA.attach(1);  // attaches the servo  to the servo object useing pin 3
+
+  myservoB.attach(0);  // attaches the servo  to the servo object useing pin 3
+
+  while (!Serial) {}
+  Serial.begin(115200);
+
+  io.begin(SX1509_ADDRESS);
+
+  Wire.begin();
+  Wire.setClock(400000); // use 400 kHz I2C
+
+  // Disable/reset all sensors by driving their XSHUT pins low.
+  for (uint8_t i = 0; i < sensorCount; i++)
+  {
+    io.pinMode(xshutPinsL0[i], OUTPUT);
+    io.digitalWrite(xshutPinsL0[i], LOW);
+   
+  }
+
+  // L0 Enable, initialize, and start each sensor, one by one.
+  for (uint8_t i = 0; i < sensorCount; i++)
+  {
+
+    io.digitalWrite(xshutPinsL0[i], HIGH);
+    delay(10);
+
+    sensorsL0[i].setTimeout(500);
+    if (!sensorsL0[i].init())
+    {
+      Serial.print("Failed to detect and initialize sensor L0 ");
+      Serial.println(i);
+      while (1);
+    }
+
+    // Each sensor must have its address changed to a unique value other than
+    // the default of 0x29 (except for the last one, which could be left at
+    // the default). To make it simple, we'll just count up from 0x2A.
+    sensorsL0[i].setAddress(VL53L0X_ADDRESS_START + i);
+
+    sensorsL0[i].startContinuous(50);
+  }
+
+}
+
+void loop()
+{
+  for (uint8_t i = 0; i < sensorCount; i++)
+  {
+    Serial.print(sensorsL0[i].readRangeContinuousMillimeters());
+    if (sensorsL0[0].readRangeContinuousMillimeters() < 200)
+    {
+      myservoA.writeMicroseconds(1050);      // sets the servo position full speed backward
+      myservoB.writeMicroseconds(1050);      // sets the servo position full speed backward
+      delay(500);                           // waits for the servo to get there
+    } else if (sensorsL0[1].readRangeContinuousMillimeters() < 200)
+    {
+      myservoB.writeMicroseconds(1950);      // sets the servo position full speed backward
+      myservoA.writeMicroseconds(1950);      // sets the servo position full speed backward
+      delay(500);                           // waits for the servo to get there
+    }
+    if (sensorsL0[i].timeoutOccurred()) { Serial.print(" TIMEOUT"); }
+    Serial.print('\t');
+  }
+  
+  Serial.println();
+}
